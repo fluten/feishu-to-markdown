@@ -174,10 +174,6 @@ python -m pytest tests/
 python -m pytest tests/ -m "not integration"
 ```
 
-## License
-
-[MIT](./LICENSE)
-
 ---
 
 <a id="简体中文"></a>
@@ -267,7 +263,3 @@ sudo apt install pandoc
 | `--force-strip` | 强制剥离所有疑似编号 | false |
 
 > `--strip-only`、`--no-strip`、`--force-strip` 三者互斥。
-
-## 许可证
-
-[MIT](./LICENSE)
