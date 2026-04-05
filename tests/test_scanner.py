@@ -1,7 +1,12 @@
 """Tests for scanner.py — heading identification, metadata population, HeadingInfo creation."""
 
+from pathlib import Path
+
 from feishu2md.models import LineInfo, ScanResult
+from feishu2md.preprocessor import preprocess
 from feishu2md.scanner import scan
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 def _make_lines(*raw_texts: str, **overrides) -> list[LineInfo]:
@@ -506,3 +511,71 @@ class TestInfoWarning:
             "skipping strip. Use --force-strip to override."
         )
         assert warnings[0].message == expected
+
+
+# ─── Fixture 文件集成测试 ────────────────────────────────────────────────────
+
+
+class TestFixtureBasic:
+
+    def test_basic_fixture(self):
+        content = (FIXTURES / "basic.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        result, warnings = scan(lines)
+        assert len(result.headings) == 6
+        levels = [h.level for h in result.headings]
+        assert levels == [1, 2, 3, 3, 2, 1]
+        assert result.min_level == 1
+        assert result.is_valid_sequence is False  # no numbering
+        assert warnings == []
+
+
+class TestFixtureWithExistingNumbers:
+
+    def test_existing_numbers_fixture(self):
+        content = (FIXTURES / "with_existing_numbers.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        result, warnings = scan(lines)
+        assert len(result.headings) == 6
+        assert result.headings[0].suspected_number == "1"
+        assert result.headings[1].suspected_number == "1.1"
+        assert result.headings[2].suspected_number == "1.1.1"
+        assert result.headings[3].suspected_number == "1.1.2"
+        assert result.headings[4].suspected_number == "1.2"
+        assert result.headings[5].suspected_number == "2"
+        assert result.is_valid_sequence is True
+        assert warnings == []
+
+
+class TestFixtureVersionTitles:
+
+    def test_version_titles_fixture(self):
+        content = (FIXTURES / "version_titles.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        result, warnings = scan(lines)
+        # Version numbers are extracted as suspected but sequence is invalid
+        assert result.is_valid_sequence is False
+        # Should have a warning about invalid sequence
+        assert len(warnings) == 1
+        assert "not a valid numbering sequence" in warnings[0].message
+        # Titles like "3D 建模规范" and "5G 技术白皮书" should NOT have suspected numbers
+        titles_without_numbers = [
+            h for h in result.headings if h.suspected_number is None
+        ]
+        title_texts = [h.title_text for h in titles_without_numbers]
+        assert any("3D" in t for t in title_texts)
+        assert any("5G" in t for t in title_texts)
+
+
+class TestFixtureEmptyHeadings:
+
+    def test_empty_headings_fixture(self):
+        content = (FIXTURES / "empty_headings.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        result, _ = scan(lines)
+        # Only non-empty headings should be identified
+        titles = [h.title_text for h in result.headings]
+        assert "正常标题" in titles
+        assert "另一个正常标题" in titles
+        # Empty headings (# , ##  ) should NOT be in the list
+        assert len(result.headings) == 2
