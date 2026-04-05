@@ -36,9 +36,10 @@ class TestScannerStub:
         params = list(sig.parameters.keys())
         assert params == ["lines"]
 
-    def test_returns_none_for_now(self):
+    def test_returns_tuple(self):
         from feishu2md.scanner import scan
-        assert scan([]) is None
+        result = scan([])
+        assert isinstance(result, tuple)
 
 
 class TestStripperStub:
