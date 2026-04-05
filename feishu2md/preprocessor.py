@@ -11,6 +11,15 @@ _HTML_COMMENT_CLOSE = "-->"
 _SETEXT_H1_RE = re.compile(r"^={3,}\s*$")
 _SETEXT_H2_RE = re.compile(r"^-{3,}\s*$")
 
+# 飞书导出 docx 经 Pandoc 转换后的粗体标题模式：
+# "1\. **文档信息**" / "2.1 **定位**" / "3.1.1 **背景**"
+_FEISHU_BOLD_HEADING_RE = re.compile(
+    r"^(\d+(?:\.\d+)*)\\?\.\s+\*\*(.+?)\*\*\s*$"  # N\. **text** 格式（顶层）
+)
+_FEISHU_BOLD_HEADING_SUB_RE = re.compile(
+    r"^(\d+\.\d+(?:\.\d+)*)\s+\*\*(.+?)\*\*\s*$"   # N.N / N.N.N **text** 格式（子层级）
+)
+
 
 def preprocess(content: str) -> list[LineInfo]:
     """将原始文本转换为 LineInfo 列表。
@@ -30,7 +39,10 @@ def preprocess(content: str) -> list[LineInfo]:
     # 3. 受保护区域标记
     _mark_protected_regions(lines)
 
-    # 4. Setext → ATX 标题转换
+    # 4. 飞书粗体标题转换（数字编号 + **粗体** → ATX 标题）
+    _convert_feishu_bold_headings(lines)
+
+    # 5. Setext → ATX 标题转换
     lines = _convert_setext_to_atx(lines)
 
     return lines
@@ -167,3 +179,41 @@ def _convert_setext_to_atx(lines: list[LineInfo]) -> list[LineInfo]:
         del lines[i]
 
     return lines
+
+
+def _convert_feishu_bold_headings(lines: list[LineInfo]) -> None:
+    """将飞书导出 docx 经 Pandoc 转换后的粗体标题模式转换为 ATX 标题。
+
+    飞书导出的 docx 不使用 Word 标题样式，而是用粗体文本 + 手动编号。
+    Pandoc 转换后变成：
+      1\\. **文档信息**     → 应转为 # 文档信息
+      2.1 **定位**          → 应转为 ## 定位
+      3.1.1 **背景**        → 应转为 ### 背景
+
+    编号段数决定标题层级：1段=H1, 2段=H2, 3段=H3, ...
+    编号被剥离（后续由 numbering 模块重新生成），粗体标记也被剥离。
+    """
+    for line in lines:
+        if line.is_protected or line.is_blockquote:
+            continue
+
+        text = line.raw_text
+
+        # 尝试匹配 "N\. **text**" 格式（顶层，Pandoc 转义了点号）
+        m = _FEISHU_BOLD_HEADING_RE.match(text)
+        if m:
+            number_str = m.group(1)
+            heading_text = m.group(2)
+            level = len(number_str.split("."))
+            prefix = "#" * level
+            line.raw_text = f"{prefix} {heading_text}"
+            continue
+
+        # 尝试匹配 "N.N **text**" / "N.N.N **text**" 格式（子层级）
+        m = _FEISHU_BOLD_HEADING_SUB_RE.match(text)
+        if m:
+            number_str = m.group(1)
+            heading_text = m.group(2)
+            level = len(number_str.split("."))
+            prefix = "#" * level
+            line.raw_text = f"{prefix} {heading_text}"

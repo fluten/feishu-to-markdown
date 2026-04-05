@@ -108,7 +108,10 @@ def _check_sequence_validity(headings: list[HeadingInfo]) -> bool:
         return False
 
     # 规则 3：至少 50% 标题包含疑似编号
-    if len(numbered) / len(headings) < 0.5:
+    # 分母只统计出现过编号的层级的标题数（兼容 --max-level 部分编号场景）
+    numbered_levels = {h.level for h in numbered}
+    headings_at_numbered_levels = [h for h in headings if h.level in numbered_levels]
+    if len(numbered) / len(headings_at_numbered_levels) < 0.5:
         return False
 
     # 规则 1：同级编号连续递增（允许间隔，不允许乱序）

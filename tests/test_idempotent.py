@@ -70,17 +70,22 @@ class TestMaxLevelIdempotency:
         assert pass1 == pass2
 
     def test_max_level_1(self):
-        """max-level=1: only H1 gets numbered. With a single numbered heading
-        among 3 total, the 50% threshold isn't met, so the number won't be
-        stripped on re-run. Use --force-strip to ensure idempotency."""
+        """max-level=1: only H1 gets numbered, idempotent with auto mode."""
         content = "# A\n## B\n### C\n"
-        pass1 = _run_pipeline(content, max_level=1, strip_mode="force")
-        pass2 = _run_pipeline(pass1, max_level=1, strip_mode="force")
+        pass1 = _run_pipeline(content, max_level=1)
+        pass2 = _run_pipeline(pass1, max_level=1)
         assert pass1 == pass2
 
     def test_max_level_1_all_h1(self):
-        """When all headings are H1, max-level=1 is idempotent with auto mode."""
+        """When all headings are H1, max-level=1 is idempotent."""
         content = "# A\n# B\n# C\n"
+        pass1 = _run_pipeline(content, max_level=1)
+        pass2 = _run_pipeline(pass1, max_level=1)
+        assert pass1 == pass2
+
+    def test_max_level_1_multiple_h1(self):
+        """Multiple H1 with sub-headings, max-level=1."""
+        content = "# A\n## B\n# C\n## D\n### E\n"
         pass1 = _run_pipeline(content, max_level=1)
         pass2 = _run_pipeline(pass1, max_level=1)
         assert pass1 == pass2
