@@ -54,11 +54,11 @@ class TestStripperStub:
         params = list(sig.parameters.keys())
         assert params == ["lines", "scan_result", "mode"]
 
-    def test_returns_none_for_now(self):
+    def test_returns_tuple(self):
         from feishu2md.stripper import strip
         from feishu2md.models import ScanResult
         result = ScanResult(headings=[], min_level=1, is_valid_sequence=False)
-        assert strip([], result, "auto") is None
+        assert isinstance(strip([], result, "auto"), tuple)
 
 
 class TestNumberingStub:
