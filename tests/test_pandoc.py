@@ -1,0 +1,175 @@
+"""Tests for pandoc.py — version detection, parameter selection, error handling."""
+
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from feishu2md.models import PandocNotFoundError, PandocVersionError
+from feishu2md.pandoc import check_available, convert, get_version
+
+
+def _mock_version_output(version_str: str) -> MagicMock:
+    """Create a mock subprocess result with pandoc version output."""
+    mock = MagicMock()
+    mock.stdout = f"pandoc {version_str}\nCompiled with pandoc-types"
+    mock.returncode = 0
+    return mock
+
+
+# --- check_available ---
+
+
+class TestCheckAvailable:
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_returns_true_when_installed(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        assert check_available() is True
+
+    @patch("feishu2md.pandoc.subprocess.run", side_effect=FileNotFoundError)
+    def test_returns_false_when_not_installed(self, mock_run):
+        assert check_available() is False
+
+
+# --- get_version ---
+
+
+class TestGetVersion:
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_parses_3x_version(self, mock_run):
+        mock_run.return_value = _mock_version_output("3.1.2")
+        assert get_version() == (3, 1, 2)
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_parses_2x_version(self, mock_run):
+        mock_run.return_value = _mock_version_output("2.19.1")
+        assert get_version() == (2, 19, 1)
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_parses_major_only(self, mock_run):
+        mock_run.return_value = _mock_version_output("3")
+        assert get_version() == (3,)
+
+    @patch("feishu2md.pandoc.subprocess.run", side_effect=FileNotFoundError)
+    def test_raises_not_found(self, mock_run):
+        with pytest.raises(PandocNotFoundError, match="pandoc is required"):
+            get_version()
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_raises_not_found_on_bad_output(self, mock_run):
+        mock = MagicMock()
+        mock.stdout = "some random output"
+        mock_run.return_value = mock
+        with pytest.raises(PandocNotFoundError):
+            get_version()
+
+
+# --- convert: version check ---
+
+
+class TestConvertVersionCheck:
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_version_1x_raises(self, mock_run):
+        mock_run.return_value = _mock_version_output("1.19.2")
+        with pytest.raises(PandocVersionError, match="pandoc >= 2.0 required"):
+            convert(Path("test.docx"))
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_version_1x_includes_found_version(self, mock_run):
+        mock_run.return_value = _mock_version_output("1.19.2")
+        with pytest.raises(PandocVersionError, match="1.19.2"):
+            convert(Path("test.docx"))
+
+
+# --- convert: parameter selection ---
+
+
+class TestConvertParameters:
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_3x_uses_markdown_headings_atx(self, mock_run):
+        # First call: get_version, second call: actual conversion
+        mock_run.side_effect = [
+            _mock_version_output("3.1.2"),
+            MagicMock(returncode=0),
+        ]
+
+        with patch("feishu2md.pandoc.Path.read_text", return_value="# Title"):
+            with patch("feishu2md.pandoc.Path.unlink"):
+                convert(Path("test.docx"))
+
+        # Check the second call (actual pandoc conversion)
+        conversion_call = mock_run.call_args_list[1]
+        cmd = conversion_call[0][0]
+        assert "--markdown-headings=atx" in cmd
+        assert "--atx-headers" not in cmd
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_2x_uses_atx_headers(self, mock_run):
+        mock_run.side_effect = [
+            _mock_version_output("2.19.1"),
+            MagicMock(returncode=0),
+        ]
+
+        with patch("feishu2md.pandoc.Path.read_text", return_value="# Title"):
+            with patch("feishu2md.pandoc.Path.unlink"):
+                convert(Path("test.docx"))
+
+        conversion_call = mock_run.call_args_list[1]
+        cmd = conversion_call[0][0]
+        assert "--atx-headers" in cmd
+        assert "--markdown-headings=atx" not in cmd
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_wrap_none_always_present(self, mock_run):
+        mock_run.side_effect = [
+            _mock_version_output("3.1.2"),
+            MagicMock(returncode=0),
+        ]
+
+        with patch("feishu2md.pandoc.Path.read_text", return_value="# Title"):
+            with patch("feishu2md.pandoc.Path.unlink"):
+                convert(Path("test.docx"))
+
+        conversion_call = mock_run.call_args_list[1]
+        cmd = conversion_call[0][0]
+        assert "--wrap=none" in cmd
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_extract_media_with_output_dir(self, mock_run):
+        mock_run.side_effect = [
+            _mock_version_output("3.1.2"),
+            MagicMock(returncode=0),
+        ]
+
+        with patch("feishu2md.pandoc.Path.read_text", return_value="# Title"):
+            with patch("feishu2md.pandoc.Path.unlink"):
+                convert(Path("test.docx"), output_dir=Path("/out"))
+
+        conversion_call = mock_run.call_args_list[1]
+        cmd = conversion_call[0][0]
+        media_args = [a for a in cmd if "--extract-media" in a]
+        assert len(media_args) == 1
+        assert "media" in media_args[0]
+
+    @patch("feishu2md.pandoc.subprocess.run")
+    def test_extract_media_without_output_dir(self, mock_run):
+        mock_run.side_effect = [
+            _mock_version_output("3.1.2"),
+            MagicMock(returncode=0),
+        ]
+
+        docx = Path("/docs/test.docx")
+        with patch("feishu2md.pandoc.Path.read_text", return_value="# Title"):
+            with patch("feishu2md.pandoc.Path.unlink"):
+                convert(docx, output_dir=None)
+
+        conversion_call = mock_run.call_args_list[1]
+        cmd = conversion_call[0][0]
+        media_args = [a for a in cmd if "--extract-media" in a]
+        assert len(media_args) == 1
+        # Should use docx parent dir
+        assert str(docx.parent / "media") in media_args[0]

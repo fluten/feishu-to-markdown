@@ -97,9 +97,13 @@ class TestPandocStub:
         sig = inspect.signature(convert)
         assert sig.parameters["output_dir"].default is None
 
-    def test_returns_none_for_now(self):
-        from feishu2md.pandoc import convert
-        assert convert(Path("dummy.docx")) is None
+    def test_has_check_available(self):
+        from feishu2md.pandoc import check_available
+        assert callable(check_available)
+
+    def test_has_get_version(self):
+        from feishu2md.pandoc import get_version
+        assert callable(get_version)
 
 
 class TestWriterStub:
