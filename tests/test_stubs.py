@@ -18,9 +18,10 @@ class TestPreprocessorStub:
         params = list(sig.parameters.keys())
         assert params == ["content"]
 
-    def test_returns_none_for_now(self):
+    def test_returns_list(self):
         from feishu2md.preprocessor import preprocess
-        assert preprocess("") is None
+        result = preprocess("")
+        assert isinstance(result, list)
 
 
 class TestScannerStub:
