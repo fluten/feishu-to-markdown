@@ -73,11 +73,11 @@ class TestNumberingStub:
         params = list(sig.parameters.keys())
         assert params == ["lines", "scan_result", "max_level"]
 
-    def test_returns_none_for_now(self):
+    def test_returns_tuple(self):
         from feishu2md.numbering import generate
         from feishu2md.models import ScanResult
         result = ScanResult(headings=[], min_level=1, is_valid_sequence=False)
-        assert generate([], result, 3) is None
+        assert isinstance(generate([], result, 3), tuple)
 
 
 class TestPandocStub:
