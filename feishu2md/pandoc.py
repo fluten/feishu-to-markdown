@@ -73,12 +73,6 @@ def convert(docx_path: Path, output_dir: Path | None = None) -> str:
             f"pandoc >= 2.0 required, found {'.'.join(str(v) for v in version)}"
         )
 
-    # Determine heading flag based on version
-    if version[0] >= 3:
-        heading_flag = "--markdown-headings=atx"
-    else:
-        heading_flag = "--atx-headers"
-
     # Calculate extract-media path
     media_dir = (output_dir if output_dir is not None else docx_path.parent) / "media"
 
@@ -87,11 +81,15 @@ def convert(docx_path: Path, output_dir: Path | None = None) -> str:
         tmp_path = Path(tmp.name)
 
     try:
+        # Use GFM (GitHub Flavored Markdown) for best table rendering:
+        # - Simple tables → pipe format (| col1 | col2 |)
+        # - Complex tables (rowspan/colspan) → HTML <table>
+        # GFM uses ATX headings by default, so no heading flag needed.
         cmd = [
             "pandoc",
             str(docx_path),
+            "-t", "gfm",
             "-o", str(tmp_path),
-            heading_flag,
             "--wrap=none",
             f"--extract-media={media_dir}",
         ]

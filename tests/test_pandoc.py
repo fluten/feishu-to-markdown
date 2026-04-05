@@ -90,8 +90,8 @@ class TestConvertVersionCheck:
 class TestConvertParameters:
 
     @patch("feishu2md.pandoc.subprocess.run")
-    def test_3x_uses_markdown_headings_atx(self, mock_run):
-        # First call: get_version, second call: actual conversion
+    def test_uses_gfm_format(self, mock_run):
+        """GFM output for best table rendering (pipe tables + HTML fallback)."""
         mock_run.side_effect = [
             _mock_version_output("3.1.2"),
             MagicMock(returncode=0),
@@ -101,14 +101,16 @@ class TestConvertParameters:
             with patch("feishu2md.pandoc.Path.unlink"):
                 convert(Path("test.docx"))
 
-        # Check the second call (actual pandoc conversion)
         conversion_call = mock_run.call_args_list[1]
         cmd = conversion_call[0][0]
-        assert "--markdown-headings=atx" in cmd
-        assert "--atx-headers" not in cmd
+        # Should use -t gfm
+        assert "-t" in cmd
+        gfm_idx = cmd.index("-t")
+        assert cmd[gfm_idx + 1] == "gfm"
 
     @patch("feishu2md.pandoc.subprocess.run")
-    def test_2x_uses_atx_headers(self, mock_run):
+    def test_2x_also_uses_gfm(self, mock_run):
+        """Pandoc 2.x also uses GFM format."""
         mock_run.side_effect = [
             _mock_version_output("2.19.1"),
             MagicMock(returncode=0),
@@ -120,8 +122,9 @@ class TestConvertParameters:
 
         conversion_call = mock_run.call_args_list[1]
         cmd = conversion_call[0][0]
-        assert "--atx-headers" in cmd
-        assert "--markdown-headings=atx" not in cmd
+        assert "-t" in cmd
+        gfm_idx = cmd.index("-t")
+        assert cmd[gfm_idx + 1] == "gfm"
 
     @patch("feishu2md.pandoc.subprocess.run")
     def test_wrap_none_always_present(self, mock_run):
