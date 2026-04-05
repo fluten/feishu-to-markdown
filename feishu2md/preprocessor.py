@@ -19,6 +19,8 @@ _FEISHU_BOLD_HEADING_RE = re.compile(
 _FEISHU_BOLD_HEADING_SUB_RE = re.compile(
     r"^(\d+\.\d+(?:\.\d+)*)\s+\*\*(.+?)\*\*\s*$"   # N.N / N.N.N **text** 格式（子层级）
 )
+# 飞书文档标题：独立的 **纯粗体行**，无编号前缀，无其他文本
+_FEISHU_BOLD_TITLE_RE = re.compile(r"^\*\*(.+?)\*\*\s*$")
 
 
 def preprocess(content: str) -> list[LineInfo]:
@@ -186,13 +188,26 @@ def _convert_feishu_bold_headings(lines: list[LineInfo]) -> None:
 
     飞书导出的 docx 不使用 Word 标题样式，而是用粗体文本 + 手动编号。
     Pandoc 转换后变成：
+      **文档标题**          → 应转为 # 文档标题（文档第一个纯粗体行）
       1\\. **文档信息**     → 应转为 # 文档信息
       2.1 **定位**          → 应转为 ## 定位
       3.1.1 **背景**        → 应转为 ### 背景
 
     编号段数决定标题层级：1段=H1, 2段=H2, 3段=H3, ...
     编号被剥离（后续由 numbering 模块重新生成），粗体标记也被剥离。
+    文档标题（第一个编号标题之前的独立纯粗体行）被识别为 H1。
     """
+    # 先扫描：文档是否包含飞书编号标题？只有确认包含时才识别文档标题
+    has_feishu_headings = any(
+        not line.is_protected and not line.is_blockquote and (
+            _FEISHU_BOLD_HEADING_RE.match(line.raw_text) or
+            _FEISHU_BOLD_HEADING_SUB_RE.match(line.raw_text)
+        )
+        for line in lines
+    )
+
+    found_numbered = False
+
     for line in lines:
         if line.is_protected or line.is_blockquote:
             continue
@@ -202,6 +217,7 @@ def _convert_feishu_bold_headings(lines: list[LineInfo]) -> None:
         # 尝试匹配 "N\. **text**" 格式（顶层，Pandoc 转义了点号）
         m = _FEISHU_BOLD_HEADING_RE.match(text)
         if m:
+            found_numbered = True
             number_str = m.group(1)
             heading_text = m.group(2)
             level = len(number_str.split("."))
@@ -212,8 +228,17 @@ def _convert_feishu_bold_headings(lines: list[LineInfo]) -> None:
         # 尝试匹配 "N.N **text**" / "N.N.N **text**" 格式（子层级）
         m = _FEISHU_BOLD_HEADING_SUB_RE.match(text)
         if m:
+            found_numbered = True
             number_str = m.group(1)
             heading_text = m.group(2)
             level = len(number_str.split("."))
             prefix = "#" * level
             line.raw_text = f"{prefix} {heading_text}"
+            continue
+
+        # 文档标题：第一个编号标题之前的独立纯粗体行 → H1
+        # 仅在确认文档包含飞书编号标题时才识别
+        if has_feishu_headings and not found_numbered:
+            m = _FEISHU_BOLD_TITLE_RE.match(text)
+            if m:
+                line.raw_text = f"# {m.group(1)}"
