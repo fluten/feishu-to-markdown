@@ -1,7 +1,13 @@
 """Tests for stripper.py — numbering strip with mode branches and sync updates."""
 
+from pathlib import Path
+
 from feishu2md.models import HeadingInfo, LineInfo, ScanResult
+from feishu2md.preprocessor import preprocess
+from feishu2md.scanner import scan
 from feishu2md.stripper import strip
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 def _heading_line(level: int, text: str, line_number: int = 1) -> LineInfo:
@@ -389,3 +395,39 @@ class TestReturnStructure:
         sr = _scan_result(lines)
         _, _, warnings = strip(lines, sr, "auto")
         assert isinstance(warnings, list)
+
+
+# ─── Fixture 集成测试 ────────────────────────────────────────────────────────
+
+
+class TestFixtureFormattedHeadings:
+
+    def test_force_strip_formatted(self):
+        """Full pipeline: preprocess → scan → strip(force) on formatted_headings.md."""
+        content = (FIXTURES / "formatted_headings.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        sr, _ = scan(lines)
+        strip(lines, sr, "force")
+
+        heading_texts = [l.heading_text for l in lines if l.heading_level is not None]
+        # Numeric prefixes stripped, Markdown formatting preserved
+        assert "**加粗的一级标题**" in heading_texts
+        assert "[链接标题](https://example.com)" in heading_texts
+        assert "`代码` 标题" in heading_texts
+        assert "普通标题" in heading_texts
+        # Chinese numbering also stripped
+        assert "中文编号标题" in heading_texts
+        assert "中文括号编号" in heading_texts
+
+    def test_auto_strip_formatted(self):
+        """Auto mode on formatted_headings.md — has valid sequence."""
+        content = (FIXTURES / "formatted_headings.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        sr, _ = scan(lines)
+        # The document has numbered headings (1, 1.1, 1.1.1, 1.2, 2) — valid sequence
+        strip(lines, sr, "auto")
+
+        heading_texts = [l.heading_text for l in lines if l.heading_level is not None]
+        assert "**加粗的一级标题**" in heading_texts
+        # Chinese always stripped regardless
+        assert "中文编号标题" in heading_texts
