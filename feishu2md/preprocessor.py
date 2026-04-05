@@ -8,13 +8,14 @@ _FRONT_MATTER_CLOSE_RE = re.compile(r"^---\s*$")
 _CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 _HTML_COMMENT_OPEN = "<!--"
 _HTML_COMMENT_CLOSE = "-->"
+_SETEXT_H1_RE = re.compile(r"^={3,}\s*$")
+_SETEXT_H2_RE = re.compile(r"^-{3,}\s*$")
 
 
 def preprocess(content: str) -> list[LineInfo]:
     """将原始文本转换为 LineInfo 列表。
 
-    当前实现：换行符统一、行分割、受保护区域标记。
-    Setext → ATX 转换将在后续任务中添加。
+    处理流程：换行符统一 → 行分割 → 受保护区域标记 → Setext → ATX 转换。
     """
     # 1. 统一换行符
     content = content.replace("\r\n", "\n")
@@ -28,6 +29,9 @@ def preprocess(content: str) -> list[LineInfo]:
 
     # 3. 受保护区域标记
     _mark_protected_regions(lines)
+
+    # 4. Setext → ATX 标题转换
+    lines = _convert_setext_to_atx(lines)
 
     return lines
 
@@ -114,3 +118,52 @@ def _mark_protected_regions(lines: list[LineInfo]) -> None:
         # Blockquote 标记
         if text.startswith(">"):
             line.is_blockquote = True
+
+
+def _convert_setext_to_atx(lines: list[LineInfo]) -> list[LineInfo]:
+    """将 Setext 风格标题转换为 ATX 风格。
+
+    转换规则：
+    - 非空文本行 + ===（≥3个）→ # 文本
+    - 非空文本行 + ---（≥3个）→ ## 文本
+    约束：
+    - 前一行非空且紧邻（前面是空行则不转换）
+    - 受保护区域内不转换
+    - 转换后删除下划线行，保留原始 line_number
+    """
+    if len(lines) < 2:
+        return lines
+
+    indices_to_remove: list[int] = []
+
+    for i in range(1, len(lines)):
+        underline = lines[i]
+        prev = lines[i - 1]
+
+        # 受保护区域内不转换
+        if underline.is_protected or prev.is_protected:
+            continue
+
+        # blockquote 内不转换
+        if underline.is_blockquote or prev.is_blockquote:
+            continue
+
+        # 前一行必须非空
+        if not prev.raw_text.strip():
+            continue
+
+        text = underline.raw_text
+
+        # 检查 === 或 ---
+        if _SETEXT_H1_RE.match(text):
+            prev.raw_text = f"# {prev.raw_text}"
+            indices_to_remove.append(i)
+        elif _SETEXT_H2_RE.match(text):
+            prev.raw_text = f"## {prev.raw_text}"
+            indices_to_remove.append(i)
+
+    # 从后往前删除，避免索引偏移
+    for i in reversed(indices_to_remove):
+        del lines[i]
+
+    return lines

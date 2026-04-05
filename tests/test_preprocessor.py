@@ -206,13 +206,17 @@ class TestFrontMatterProtection:
         assert lines[3].is_protected is False
 
     def test_not_front_matter_if_not_first_line(self):
-        """--- not at file start is not front matter."""
+        """--- not at file start is not front matter, but may be Setext H2."""
         content = "hello\n---\ntitle: hi\n---"
         lines = preprocess(content)
+        # --- after "hello" → Setext H2 → "## hello"
+        # --- after "title: hi" → Setext H2 → "## title: hi"
+        # Both underlines removed, 4 lines → 2 lines
+        assert len(lines) == 2
+        assert lines[0].raw_text == "## hello"
         assert lines[0].is_protected is False
+        assert lines[1].raw_text == "## title: hi"
         assert lines[1].is_protected is False
-        assert lines[2].is_protected is False
-        assert lines[3].is_protected is False
 
     def test_front_matter_first_close_wins(self):
         """Only the first matching --- closes the front matter."""
@@ -317,3 +321,151 @@ class TestProtectionPriority:
         assert lines[3].is_protected is True    # code fence
         assert lines[4].is_protected is True    # code
         assert lines[5].is_protected is True    # code fence close
+
+
+# ─── Setext → ATX 标题转换 ───────────────────────────────────────────────────
+
+
+class TestSetextToAtx:
+
+    def test_equals_to_h1(self):
+        content = "Title\n==="
+        lines = preprocess(content)
+        assert len(lines) == 1
+        assert lines[0].raw_text == "# Title"
+
+    def test_dashes_to_h2(self):
+        content = "Title\n---"
+        lines = preprocess(content)
+        assert len(lines) == 1
+        assert lines[0].raw_text == "## Title"
+
+    def test_long_equals(self):
+        content = "Title\n=========="
+        lines = preprocess(content)
+        assert len(lines) == 1
+        assert lines[0].raw_text == "# Title"
+
+    def test_long_dashes(self):
+        content = "Title\n----------"
+        lines = preprocess(content)
+        assert len(lines) == 1
+        assert lines[0].raw_text == "## Title"
+
+    def test_equals_with_trailing_spaces(self):
+        content = "Title\n===   "
+        lines = preprocess(content)
+        assert len(lines) == 1
+        assert lines[0].raw_text == "# Title"
+
+    def test_line_count_reduced(self):
+        """Underline line is deleted, reducing total line count."""
+        content = "before\nTitle\n===\nafter"
+        lines = preprocess(content)
+        assert len(lines) == 3  # before, # Title, after
+        texts = [l.raw_text for l in lines]
+        assert texts == ["before", "# Title", "after"]
+
+    def test_original_line_number_preserved(self):
+        """line_number stays as original, not re-numbered."""
+        content = "before\nTitle\n===\nafter"
+        lines = preprocess(content)
+        assert lines[0].line_number == 1    # before
+        assert lines[1].line_number == 2    # Title (originally line 2)
+        assert lines[2].line_number == 4    # after (originally line 4)
+
+    def test_empty_line_before_dashes_is_hr(self):
+        """--- preceded by empty line is a horizontal rule, not Setext."""
+        content = "text\n\n---\nafter"
+        lines = preprocess(content)
+        # No conversion — all 4 lines remain
+        assert len(lines) == 4
+        assert lines[2].raw_text == "---"
+
+    def test_first_line_dashes_is_not_setext(self):
+        """--- as the very first line with nothing before it — not Setext."""
+        # Can't be Setext because there's no preceding text line.
+        # (First line is --- which would be front matter open, but no close,
+        #  so entire file is front matter / protected.)
+        content = "---\ntext"
+        lines = preprocess(content)
+        # Front matter opens but never closes — both lines protected
+        assert lines[0].is_protected is True
+        assert lines[1].is_protected is True
+
+    def test_not_converted_inside_code_block(self):
+        content = "```\nTitle\n===\n```"
+        lines = preprocess(content)
+        assert len(lines) == 4  # no conversion
+        assert lines[1].raw_text == "Title"
+        assert lines[2].raw_text == "==="
+
+    def test_not_converted_inside_html_comment(self):
+        content = "<!--\nTitle\n===\n-->"
+        lines = preprocess(content)
+        assert len(lines) == 4
+        assert lines[1].raw_text == "Title"
+
+    def test_not_converted_in_front_matter(self):
+        content = "---\nTitle\n===\n---"
+        lines = preprocess(content)
+        # All protected as front matter (=== doesn't match --- close)
+        assert lines[2].raw_text == "==="
+        assert lines[2].is_protected is True
+
+    def test_not_converted_in_blockquote(self):
+        content = "> Title\n> ==="
+        lines = preprocess(content)
+        assert len(lines) == 2
+        assert lines[0].raw_text == "> Title"
+
+    def test_multiple_setext_headings(self):
+        content = "First\n===\ntext\nSecond\n---\nmore"
+        lines = preprocess(content)
+        assert len(lines) == 4  # 6 original - 2 underlines
+        texts = [l.raw_text for l in lines]
+        assert texts == ["# First", "text", "## Second", "more"]
+
+    def test_two_dashes_too_short(self):
+        """-- (only 2) is not a valid Setext underline (need >= 3)."""
+        content = "Title\n--"
+        lines = preprocess(content)
+        assert len(lines) == 2  # no conversion
+        assert lines[0].raw_text == "Title"
+        assert lines[1].raw_text == "--"
+
+    def test_two_equals_too_short(self):
+        content = "Title\n=="
+        lines = preprocess(content)
+        assert len(lines) == 2
+        assert lines[0].raw_text == "Title"
+
+    def test_mixed_chars_not_setext(self):
+        """=-= is not a valid Setext underline."""
+        content = "Title\n=-="
+        lines = preprocess(content)
+        assert len(lines) == 2
+        assert lines[0].raw_text == "Title"
+
+    def test_hr_with_stars(self):
+        """*** is a horizontal rule, never Setext (only = and - are)."""
+        content = "text\n***"
+        lines = preprocess(content)
+        assert len(lines) == 2
+        assert lines[0].raw_text == "text"
+        assert lines[1].raw_text == "***"
+
+    def test_consecutive_setext_headings(self):
+        """Two Setext headings back-to-back."""
+        content = "A\n===\nB\n==="
+        lines = preprocess(content)
+        assert len(lines) == 2
+        assert lines[0].raw_text == "# A"
+        assert lines[1].raw_text == "# B"
+
+    def test_equals_as_first_line(self):
+        """=== as the very first line — no preceding text, not Setext."""
+        content = "===\ntext"
+        lines = preprocess(content)
+        assert len(lines) == 2
+        assert lines[0].raw_text == "==="
