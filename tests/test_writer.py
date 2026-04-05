@@ -1,8 +1,11 @@
-"""Tests for writer.py — stdout output and file output."""
+"""Tests for writer.py — stdout, file, inplace output."""
 
 from pathlib import Path
+from unittest.mock import patch
 
-from feishu2md.models import LineInfo
+import pytest
+
+from feishu2md.models import LineInfo, WriteError
 from feishu2md.writer import write
 
 
@@ -111,3 +114,112 @@ class TestFileOutput:
         write(lines, output=out, inplace=False, backup=True)
         captured = capsys.readouterr()
         assert captured.out == ""
+
+
+# --- inplace with backup ---
+
+
+class TestInplaceWithBackup:
+
+    def test_file_updated(self, tmp_path):
+        src = tmp_path / "test.md"
+        src.write_text("old", encoding="utf-8")
+        lines = _make_lines("new")
+        write(lines, output=None, inplace=True, backup=True, input_path=src)
+        assert src.read_text(encoding="utf-8") == "new"
+
+    def test_bak_created(self, tmp_path):
+        src = tmp_path / "test.md"
+        src.write_text("old", encoding="utf-8")
+        lines = _make_lines("new")
+        write(lines, output=None, inplace=True, backup=True, input_path=src)
+        bak = tmp_path / "test.md.bak"
+        assert bak.exists()
+
+    def test_bak_has_original_content(self, tmp_path):
+        src = tmp_path / "test.md"
+        src.write_text("original content", encoding="utf-8")
+        lines = _make_lines("new content")
+        write(lines, output=None, inplace=True, backup=True, input_path=src)
+        bak = tmp_path / "test.md.bak"
+        assert bak.read_text(encoding="utf-8") == "original content"
+
+    def test_tmp_file_cleaned_up(self, tmp_path):
+        src = tmp_path / "test.md"
+        src.write_text("old", encoding="utf-8")
+        lines = _make_lines("new")
+        write(lines, output=None, inplace=True, backup=True, input_path=src)
+        tmp = tmp_path / "test.md.tmp"
+        assert not tmp.exists()
+
+    def test_output_lf_newlines(self, tmp_path):
+        src = tmp_path / "test.md"
+        src.write_text("old", encoding="utf-8")
+        lines = _make_lines("line1", "line2")
+        write(lines, output=None, inplace=True, backup=True, input_path=src)
+        raw = src.read_bytes()
+        assert b"\r\n" not in raw
+
+
+# --- inplace without backup ---
+
+
+class TestInplaceNoBackup:
+
+    def test_no_bak_file(self, tmp_path):
+        src = tmp_path / "test.md"
+        src.write_text("old", encoding="utf-8")
+        lines = _make_lines("new")
+        write(lines, output=None, inplace=True, backup=False, input_path=src)
+        bak = tmp_path / "test.md.bak"
+        assert not bak.exists()
+
+    def test_file_updated(self, tmp_path):
+        src = tmp_path / "test.md"
+        src.write_text("old", encoding="utf-8")
+        lines = _make_lines("new")
+        write(lines, output=None, inplace=True, backup=False, input_path=src)
+        assert src.read_text(encoding="utf-8") == "new"
+
+
+# --- parameter validation ---
+
+
+class TestParameterValidation:
+
+    def test_inplace_without_input_path_raises(self):
+        lines = _make_lines("content")
+        with pytest.raises(WriteError, match="inplace=True requires input_path"):
+            write(lines, output=None, inplace=True, backup=True, input_path=None)
+
+
+# --- atomic write safety ---
+
+
+class TestAtomicWriteSafety:
+
+    def test_rename_failure_preserves_original(self, tmp_path):
+        """If renaming .tmp to original fails, .bak is restored."""
+        src = tmp_path / "test.md"
+        src.write_text("original", encoding="utf-8")
+        lines = _make_lines("new")
+
+        # Mock the second rename (tmp -> input_path) to fail
+        real_rename = Path.rename
+
+        call_count = 0
+
+        def mock_rename(self, target):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:  # second rename: tmp -> input_path
+                raise OSError("mock rename failure")
+            return real_rename(self, target)
+
+        with patch.object(Path, "rename", mock_rename):
+            with pytest.raises(WriteError):
+                write(lines, output=None, inplace=True, backup=True, input_path=src)
+
+        # Original file should be restored
+        assert src.exists()
+        assert src.read_text(encoding="utf-8") == "original"
