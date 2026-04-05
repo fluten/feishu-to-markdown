@@ -1,7 +1,14 @@
 """Tests for numbering.py — counter logic, level jump, max-level, prefix concatenation."""
 
+from pathlib import Path
+
 from feishu2md.models import HeadingInfo, LineInfo, ScanResult
 from feishu2md.numbering import generate
+from feishu2md.preprocessor import preprocess
+from feishu2md.scanner import scan
+from feishu2md.stripper import strip
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 def _heading_line(level: int, text: str, line_number: int = 1) -> LineInfo:
@@ -302,4 +309,53 @@ class TestReturnStructure:
         lines = [LineInfo(line_number=1, raw_text="no headings")]
         sr = _scan_result(lines)
         _, warnings = generate(lines, sr, max_level=3)
+        assert warnings == []
+
+
+# --- Fixture integration tests ---
+
+
+class TestFixtureLevelJump:
+
+    def test_level_jump_fixture(self):
+        """Full pipeline: preprocess -> scan -> strip -> generate on level_jump.md."""
+        content = (FIXTURES / "level_jump.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        sr, _ = scan(lines)
+        lines, sr, _ = strip(lines, sr, "auto")
+        lines, warnings = generate(lines, sr, max_level=3)
+
+        numbered = [l for l in lines if l.heading_level is not None]
+        texts = [l.heading_text for l in numbered]
+
+        # H1 Overview -> 1 Overview
+        assert texts[0] == "1 Overview"
+        # H3 Detail Section -> 1.1.1 Detail Section (H2 auto-filled)
+        assert texts[1] == "1.1.1 Detail Section"
+        # Should have at least one warning about level jump
+        assert len(warnings) >= 1
+        assert any("jumped" in w.message for w in warnings)
+
+
+class TestFixtureStartFromH2:
+
+    def test_start_from_h2_fixture(self):
+        """Full pipeline on start_from_h2.md — numbering starts from 1, not 0.1."""
+        content = (FIXTURES / "start_from_h2.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        sr, _ = scan(lines)
+        lines, sr, _ = strip(lines, sr, "auto")
+        lines, warnings = generate(lines, sr, max_level=3)
+
+        numbered = [l for l in lines if l.heading_level is not None]
+        texts = [l.heading_text for l in numbered]
+
+        # H2 starts at 1, not 0.1
+        assert texts[0] == "1 Feature Design"
+        assert texts[1] == "1.1 Interaction Logic"
+        assert texts[2] == "1.2 Visual Guidelines"
+        assert texts[3] == "2 Technical Plan"
+        assert texts[4] == "2.1 Architecture"
+        assert texts[5] == "2.2 Database Design"
+        # No warnings (no level jumps)
         assert warnings == []
