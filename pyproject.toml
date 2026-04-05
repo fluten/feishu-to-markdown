@@ -1,0 +1,25 @@
+[project]
+name = "feishu-to-markdown"
+version = "1.0.0"
+description = "Convert Feishu (飞书/Lark) docs to clean Markdown with auto-numbered headings"
+authors = [
+    { name = "gh59" },
+]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+readme = "README.md"
+keywords = [
+    "feishu", "lark", "markdown", "converter", "heading-numbering",
+    "pandoc", "docx-to-markdown", "document-converter",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests requiring Pandoc (deselect with '-m \"not integration\"')",
+]
