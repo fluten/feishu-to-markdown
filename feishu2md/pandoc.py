@@ -73,8 +73,10 @@ def convert(docx_path: Path, output_dir: Path | None = None) -> str:
             f"pandoc >= 2.0 required, found {'.'.join(str(v) for v in version)}"
         )
 
-    # Calculate extract-media path
-    media_dir = (output_dir if output_dir is not None else docx_path.parent) / "media"
+    # Calculate extract-media path using absolute path.
+    # Pandoc creates a "media/" subdirectory inside the extract-media path.
+    # We use the output directory so images land next to the output md file.
+    media_base = (output_dir if output_dir is not None else docx_path.parent).resolve()
 
     # Write to a temp file, then read back
     with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as tmp:
@@ -91,7 +93,7 @@ def convert(docx_path: Path, output_dir: Path | None = None) -> str:
             "-t", "gfm",
             "-o", str(tmp_path),
             "--wrap=none",
-            f"--extract-media={media_dir}",
+            f"--extract-media={media_base}",
         ]
 
         result = subprocess.run(
@@ -107,6 +109,22 @@ def convert(docx_path: Path, output_dir: Path | None = None) -> str:
                 f"pandoc conversion failed: {result.stderr.strip()}"
             )
 
-        return tmp_path.read_text(encoding="utf-8")
+        content = tmp_path.read_text(encoding="utf-8")
+
+        # Fix image paths: Pandoc generates absolute paths with mixed
+        # slashes (e.g., "C:\...\docs/media/img.png"). Replace the
+        # media_base prefix (however slashed) with just "media" so paths
+        # become relative to the output file's directory.
+        media_base_str = str(media_base)
+        # Pandoc may output: media_base + "/media/..." or media_base + "\media/..."
+        # Normalize: replace any variant of media_base followed by /media or \media
+        for sep in ["/", "\\"]:
+            prefix = media_base_str + sep + "media"
+            content = content.replace(prefix, "media")
+            # Also try with all-forward-slash base
+            prefix_fwd = media_base_str.replace("\\", "/") + sep + "media"
+            content = content.replace(prefix_fwd, "media")
+
+        return content
     finally:
         tmp_path.unlink(missing_ok=True)

@@ -156,7 +156,6 @@ class TestConvertParameters:
         cmd = conversion_call[0][0]
         media_args = [a for a in cmd if "--extract-media" in a]
         assert len(media_args) == 1
-        assert "media" in media_args[0]
 
     @patch("feishu2md.pandoc.subprocess.run")
     def test_extract_media_without_output_dir(self, mock_run):
@@ -174,8 +173,8 @@ class TestConvertParameters:
         cmd = conversion_call[0][0]
         media_args = [a for a in cmd if "--extract-media" in a]
         assert len(media_args) == 1
-        # Should use docx parent dir
-        assert str(docx.parent / "media") in media_args[0]
+        # Should use docx parent dir (resolved absolute path)
+        assert str(docx.parent.resolve()) in media_args[0]
 
 
 # --- integration test (requires real Pandoc) ---
