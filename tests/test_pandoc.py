@@ -173,3 +173,36 @@ class TestConvertParameters:
         assert len(media_args) == 1
         # Should use docx parent dir
         assert str(docx.parent / "media") in media_args[0]
+
+
+# --- integration test (requires real Pandoc) ---
+
+
+class TestConvertIntegration:
+
+    @pytest.mark.integration
+    def test_docx_end_to_end(self, tmp_path):
+        """End-to-end .docx conversion with real Pandoc.
+        Skip if Pandoc is not installed."""
+        if not check_available():
+            pytest.skip("Pandoc not installed")
+
+        # Create a minimal .docx via pandoc (md -> docx -> md roundtrip)
+        src_md = tmp_path / "source.md"
+        src_md.write_text("# Title\n\nContent\n", encoding="utf-8")
+        docx_file = tmp_path / "test.docx"
+
+        # Convert md to docx first
+        import subprocess, sys
+        result = subprocess.run(
+            ["pandoc", str(src_md), "-o", str(docx_file)],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            pytest.skip("Pandoc md->docx conversion failed")
+
+        # Now test our convert function
+        md_text = convert(docx_file, output_dir=tmp_path)
+        assert isinstance(md_text, str)
+        assert len(md_text) > 0
+        assert "Title" in md_text
