@@ -305,3 +305,128 @@ class TestGetStripMode:
         from feishu2md.__main__ import get_strip_mode
         ns = argparse.Namespace(strip_only=False, no_strip=False, force_strip=True)
         assert get_strip_mode(ns) == "force"
+
+
+# --- Full pipeline integration (subprocess) ---
+
+
+class TestPipelineIntegration:
+    """End-to-end pipeline tests via subprocess."""
+
+    def test_basic_numbering(self, tmp_path):
+        src = tmp_path / "input.md"
+        src.write_text("# A\n\n## B\n\n### C\n", encoding="utf-8")
+        result = run_cli(str(src))
+        assert result.returncode == 0
+        assert "# 1 A" in result.stdout
+        assert "## 1.1 B" in result.stdout
+        assert "### 1.1.1 C" in result.stdout
+
+    def test_output_to_file(self, tmp_path):
+        src = tmp_path / "input.md"
+        src.write_text("# A\n## B\n", encoding="utf-8")
+        out = tmp_path / "output.md"
+        result = run_cli(str(src), "-o", str(out))
+        assert result.returncode == 0
+        content = out.read_text(encoding="utf-8")
+        assert "# 1 A" in content
+        assert "## 1.1 B" in content
+        assert result.stdout == ""
+
+    def test_inplace_with_backup(self, tmp_path):
+        src = tmp_path / "test.md"
+        src.write_text("# A\n## B\n", encoding="utf-8")
+        result = run_cli(str(src), "--inplace")
+        assert result.returncode == 0
+        assert "# 1 A" in src.read_text(encoding="utf-8")
+        bak = tmp_path / "test.md.bak"
+        assert bak.exists()
+        assert "# A" in bak.read_text(encoding="utf-8")
+
+    def test_inplace_no_backup(self, tmp_path):
+        src = tmp_path / "test.md"
+        src.write_text("# A\n", encoding="utf-8")
+        result = run_cli(str(src), "--inplace", "--no-backup")
+        assert result.returncode == 0
+        assert "# 1 A" in src.read_text(encoding="utf-8")
+        bak = tmp_path / "test.md.bak"
+        assert not bak.exists()
+
+    def test_strip_only(self, tmp_path):
+        src = tmp_path / "input.md"
+        src.write_text("# 1 A\n## 1.1 B\n", encoding="utf-8")
+        result = run_cli(str(src), "--strip-only")
+        assert result.returncode == 0
+        assert "# A" in result.stdout
+        assert "## B" in result.stdout
+        # No numbering should be re-added
+        assert "# 1 " not in result.stdout
+
+    def test_no_strip(self, tmp_path):
+        src = tmp_path / "input.md"
+        src.write_text("# A\n## B\n", encoding="utf-8")
+        result = run_cli(str(src), "--no-strip")
+        assert result.returncode == 0
+        assert "# 1 A" in result.stdout
+
+    def test_force_strip(self, tmp_path):
+        src = tmp_path / "input.md"
+        src.write_text("# 1.0 A\n## 2.0 B\n", encoding="utf-8")
+        result = run_cli(str(src), "--force-strip")
+        assert result.returncode == 0
+        assert "# 1 A" in result.stdout
+        assert "## 1.1 B" in result.stdout
+
+    def test_max_level(self, tmp_path):
+        src = tmp_path / "input.md"
+        src.write_text("# A\n## B\n### C\n", encoding="utf-8")
+        result = run_cli(str(src), "--max-level", "2")
+        assert result.returncode == 0
+        assert "# 1 A" in result.stdout
+        assert "## 1.1 B" in result.stdout
+        assert "### C" in result.stdout  # H3 not numbered
+
+    def test_empty_file(self, tmp_path):
+        src = tmp_path / "empty.md"
+        src.write_text("", encoding="utf-8")
+        result = run_cli(str(src))
+        assert result.returncode == 0
+
+    def test_no_headings_file(self, tmp_path):
+        src = tmp_path / "noheadings.md"
+        src.write_text("just text\nmore text\n", encoding="utf-8")
+        result = run_cli(str(src))
+        assert result.returncode == 0
+        assert "just text" in result.stdout
+
+
+class TestWarningOutput:
+    """Warnings go to stderr, not stdout."""
+
+    def test_warning_in_stderr_not_stdout(self, tmp_path):
+        src = tmp_path / "input.md"
+        src.write_text("# A\n### C\n", encoding="utf-8")
+        result = run_cli(str(src))
+        # Warning about level jump should be in stderr
+        assert "jumped" in result.stderr or "Warning" in result.stderr
+        # stdout should only have the processed content
+        assert "Warning" not in result.stdout
+
+    def test_no_headings_warning(self, tmp_path):
+        src = tmp_path / "noheadings.md"
+        src.write_text("just text\n", encoding="utf-8")
+        result = run_cli(str(src))
+        assert "no headings found" in result.stderr
+
+    def test_info_prefix_for_invalid_sequence(self, tmp_path):
+        src = tmp_path / "input.md"
+        src.write_text("# 1.0 A\n## 2.0 B\n## 3.1 C\n", encoding="utf-8")
+        result = run_cli(str(src))
+        assert "Info:" in result.stderr
+        assert "not a valid numbering sequence" in result.stderr
+
+    def test_level_jump_warning(self, tmp_path):
+        src = tmp_path / "input.md"
+        src.write_text("# A\n### C\n", encoding="utf-8")
+        result = run_cli(str(src))
+        assert "jumped from H1 to H3" in result.stderr

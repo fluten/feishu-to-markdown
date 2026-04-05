@@ -137,9 +137,16 @@ def run_pipeline(args: argparse.Namespace) -> None:
         )
         all_warnings.extend(num_warnings)
 
+    # 5b. No headings warning
+    if not scan_result.headings:
+        all_warnings.append(Warning(line_number=0, message="no headings found"))
+
     # 6. Output warnings
     for w in all_warnings:
-        print(f"Warning: {w.message} (line {w.line_number})", file=sys.stderr)
+        if w.message.startswith("number prefixes detected"):
+            print(f"Info: {w.message}", file=sys.stderr)
+        else:
+            print(f"Warning: {w.message}", file=sys.stderr)
 
     # 7. Write output
     writer.write(
