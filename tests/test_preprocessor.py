@@ -1,6 +1,10 @@
 """Tests for preprocessor.py — newline normalization, line splitting, protected regions."""
 
+from pathlib import Path
+
 from feishu2md.preprocessor import preprocess
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 # ─── 换行符统一 ──────────────────────────────────────────────────────────────
@@ -469,3 +473,73 @@ class TestSetextToAtx:
         lines = preprocess(content)
         assert len(lines) == 2
         assert lines[0].raw_text == "==="
+
+
+# ─── Fixture 文件集成测试 ────────────────────────────────────────────────────
+
+
+class TestFixtureCodeBlocks:
+
+    def test_code_blocks_fixture(self):
+        content = (FIXTURES / "code_blocks.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        texts = [l.raw_text for l in lines]
+        # # 代码示例 is a real heading (not protected)
+        assert any("# 代码示例" in t for t in texts)
+        # Lines inside ``` blocks are protected
+        protected_texts = [l.raw_text for l in lines if l.is_protected]
+        assert any("# 这不是标题" in t for t in protected_texts)
+        assert any("# 多重反引号内的内容" in t for t in protected_texts)
+        assert any("# 波浪号代码块" in t for t in protected_texts)
+        # ## 第二节 is not protected
+        non_protected = [l for l in lines if not l.is_protected]
+        assert any("## 第二节" in l.raw_text for l in non_protected)
+
+
+class TestFixtureSetextHeadings:
+
+    def test_setext_fixture(self):
+        content = (FIXTURES / "setext_headings.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        texts = [l.raw_text for l in lines]
+        # 产品概述 converted to # 产品概述
+        assert "# 产品概述" in texts
+        # 功能设计 converted to ## 功能设计
+        assert "## 功能设计" in texts
+        # 技术方案 converted to ## 技术方案
+        assert "## 技术方案" in texts
+        # --- (standalone) is NOT converted — remains as ---
+        assert "---" in texts
+        # 短下划线不转换 stays unconverted (-- is only 2 chars)
+        assert "短下划线不转换" in texts
+        assert "--" in texts
+
+
+class TestFixtureFrontMatter:
+
+    def test_front_matter_fixture(self):
+        content = (FIXTURES / "front_matter.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        # First 7 lines (--- through ---) are protected
+        fm_lines = [l for l in lines if l.is_protected]
+        assert any("title: 测试文档" in l.raw_text for l in fm_lines)
+        assert any("date: 2024-01-01" in l.raw_text for l in fm_lines)
+        # # 正文开始 is NOT protected
+        non_protected = [l for l in lines if not l.is_protected]
+        assert any("# 正文开始" in l.raw_text for l in non_protected)
+
+
+class TestFixtureBlockquote:
+
+    def test_blockquote_fixture(self):
+        content = (FIXTURES / "blockquote.md").read_text(encoding="utf-8")
+        lines = preprocess(content)
+        # > lines are blockquote
+        bq_lines = [l for l in lines if l.is_blockquote]
+        assert len(bq_lines) >= 4
+        assert any("# 引用里的标题" in l.raw_text for l in bq_lines)
+        # Normal headings are NOT blockquote
+        normal = [l for l in lines if not l.is_blockquote and not l.is_protected]
+        assert any("# 正常标题" in l.raw_text for l in normal)
+        assert any("## 正常的二级标题" in l.raw_text for l in normal)
+        assert any("### 正常的三级标题" in l.raw_text for l in normal)
