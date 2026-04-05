@@ -197,7 +197,7 @@ def _convert_feishu_bold_headings(lines: list[LineInfo]) -> None:
     编号被剥离（后续由 numbering 模块重新生成），粗体标记也被剥离。
     文档标题（第一个编号标题之前的独立纯粗体行）被识别为 H1。
     """
-    # 先扫描：文档是否包含飞书编号标题？只有确认包含时才识别文档标题
+    # 先扫描：文档是否包含飞书编号标题？
     has_feishu_headings = any(
         not line.is_protected and not line.is_blockquote and (
             _FEISHU_BOLD_HEADING_RE.match(line.raw_text) or
@@ -205,7 +205,24 @@ def _convert_feishu_bold_headings(lines: list[LineInfo]) -> None:
         )
         for line in lines
     )
+    if not has_feishu_headings:
+        return
 
+    # 检测文档标题：第一个编号标题之前的独立纯粗体行
+    has_title = False
+    for line in lines:
+        if line.is_protected or line.is_blockquote:
+            continue
+        text = line.raw_text
+        if not text.strip():
+            continue
+        # 如果第一个非空行是纯粗体（无编号），则为文档标题
+        if _FEISHU_BOLD_TITLE_RE.match(text) and not _FEISHU_BOLD_HEADING_RE.match(text):
+            has_title = True
+        break  # 只检查第一个非空行
+
+    # 有文档标题时，编号标题全部降一级（标题占 H1）
+    level_offset = 1 if has_title else 0
     found_numbered = False
 
     for line in lines:
@@ -220,7 +237,7 @@ def _convert_feishu_bold_headings(lines: list[LineInfo]) -> None:
             found_numbered = True
             number_str = m.group(1)
             heading_text = m.group(2)
-            level = len(number_str.split("."))
+            level = len(number_str.split(".")) + level_offset
             prefix = "#" * level
             line.raw_text = f"{prefix} {heading_text}"
             continue
@@ -231,14 +248,11 @@ def _convert_feishu_bold_headings(lines: list[LineInfo]) -> None:
             found_numbered = True
             number_str = m.group(1)
             heading_text = m.group(2)
-            level = len(number_str.split("."))
+            level = len(number_str.split(".")) + level_offset
             prefix = "#" * level
             line.raw_text = f"{prefix} {heading_text}"
             continue
 
-        # 文档标题：第一个编号标题之前的独立纯粗体行 → H1
-        # 仅在确认文档包含飞书编号标题时才识别
-        if has_feishu_headings and not found_numbered:
-            m = _FEISHU_BOLD_TITLE_RE.match(text)
-            if m:
-                line.raw_text = f"# {m.group(1)}"
+        # 文档标题：保持 **粗体** 原样不转换。
+        # 它在 Markdown 渲染时显示为粗体文本（视觉上是标题效果），
+        # 但不参与 scanner/numbering 的编号系统。

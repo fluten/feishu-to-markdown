@@ -614,5 +614,25 @@ class TestFeishuBoldHeadings:
         lines = preprocess(content)
         texts = [l.raw_text for l in lines]
         assert "# Real Heading" in texts
+        # No doc title before numbered headings, so no level offset
         assert "# Feishu H1" in texts
         assert "## Feishu H2" in texts
+
+    def test_doc_title_not_numbered(self):
+        """Document title (bold line before numbered headings) stays as bold, not ATX."""
+        content = "**Doc Title**\n\n1\\. **Section**\n\n2.1 **Sub**"
+        lines = preprocess(content)
+        texts = [l.raw_text for l in lines]
+        # Title stays as bold (not converted to #)
+        assert "**Doc Title**" in texts
+        # Numbered headings shift down one level (title occupies H1 conceptually)
+        assert "## Section" in texts   # 1-segment + offset=1 → H2
+        assert "### Sub" in texts      # 2-segment + offset=1 → H3
+
+    def test_no_title_no_offset(self):
+        """Without a doc title, numbered headings use their natural level."""
+        content = "1\\. **Section**\n\n2.1 **Sub**"
+        lines = preprocess(content)
+        texts = [l.raw_text for l in lines]
+        assert "# Section" in texts   # 1-segment → H1
+        assert "## Sub" in texts      # 2-segment → H2
