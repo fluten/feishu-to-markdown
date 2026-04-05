@@ -234,12 +234,16 @@ class TestHeadingInfoCreation:
         assert result.headings[0].level == 3
         assert result.headings[0].level == lines[0].heading_level
 
-    def test_suspected_number_is_none_for_now(self):
-        """suspected_number is None until numbering extraction is implemented."""
+    def test_suspected_number_extracted(self):
         lines = _make_lines("# 1 Title", "## 1.1 Sub")
         result, _ = scan(lines)
-        for h in result.headings:
-            assert h.suspected_number is None
+        assert result.headings[0].suspected_number == "1"
+        assert result.headings[1].suspected_number == "1.1"
+
+    def test_suspected_number_none_when_no_number(self):
+        lines = _make_lines("# Title without number")
+        result, _ = scan(lines)
+        assert result.headings[0].suspected_number is None
 
     def test_empty_document_no_headings(self):
         lines = _make_lines("")
@@ -305,14 +309,200 @@ class TestScanResultStructure:
         assert isinstance(result, ScanResult)
         assert isinstance(warnings, list)
 
-    def test_warnings_empty_for_now(self):
-        """No warnings generated yet (sequence validation not implemented)."""
+    def test_warnings_empty_when_no_numbers(self):
         lines = _make_lines("# A", "## B")
         _, warnings = scan(lines)
         assert warnings == []
 
-    def test_is_valid_sequence_false_for_now(self):
-        """Sequence validation not yet implemented — always False."""
-        lines = _make_lines("# 1 A", "## 1.1 B")
+    def test_valid_sequence_true(self):
+        lines = _make_lines("# 1 A", "## 1.1 B", "## 1.2 C", "# 2 D")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is True
+
+
+# ─── 疑似编号提取 ────────────────────────────────────────────────────────────
+
+
+class TestSuspectedNumberExtraction:
+
+    def test_single_number(self):
+        lines = _make_lines("# 1 Title")
+        result, _ = scan(lines)
+        assert result.headings[0].suspected_number == "1"
+
+    def test_dotted_number(self):
+        lines = _make_lines("## 1.1 Title")
+        result, _ = scan(lines)
+        assert result.headings[0].suspected_number == "1.1"
+
+    def test_deep_dotted_number(self):
+        lines = _make_lines("### 1.2.3 Title")
+        result, _ = scan(lines)
+        assert result.headings[0].suspected_number == "1.2.3"
+
+    def test_no_number(self):
+        lines = _make_lines("# Plain title")
+        result, _ = scan(lines)
+        assert result.headings[0].suspected_number is None
+
+    def test_number_without_trailing_space_not_extracted(self):
+        """'1.0概述' — no space after number, not a suspected numbering."""
+        lines = _make_lines("# 1.0概述")
+        result, _ = scan(lines)
+        # regex requires \s+ after the number
+        assert result.headings[0].suspected_number is None
+
+    def test_version_number_extracted_as_suspected(self):
+        """'1.0 概述' matches the regex — it's up to sequence validation to reject."""
+        lines = _make_lines("# 1.0 概述")
+        result, _ = scan(lines)
+        assert result.headings[0].suspected_number == "1.0"
+
+    def test_chinese_numbering_not_extracted(self):
+        """Chinese numbering is NOT extracted as suspected_number (handled by stripper)."""
+        lines = _make_lines("# 一、标题")
+        result, _ = scan(lines)
+        assert result.headings[0].suspected_number is None
+
+    def test_paren_numbering_not_extracted(self):
+        """Parenthesized numbering is NOT extracted (handled by stripper)."""
+        lines = _make_lines("# (1) 标题")
+        result, _ = scan(lines)
+        assert result.headings[0].suspected_number is None
+
+    def test_year_not_extracted(self):
+        """'2024 年度总结' — 2024 is extracted as suspected number (sequence check rejects)."""
+        lines = _make_lines("# 2024 年度总结")
+        result, _ = scan(lines)
+        assert result.headings[0].suspected_number == "2024"
+
+    def test_3d_not_extracted(self):
+        """'3D 建模' — '3D' doesn't match digit-only pattern."""
+        lines = _make_lines("# 3D 建模")
+        result, _ = scan(lines)
+        # '3D' starts with digit but 'D' breaks \d+(\.\d+)* pattern
+        # Actually regex is ^\d+(\.\d+)*\s+ — '3D 建模' → \d+ matches '3', then needs \s+
+        # but next char is 'D', not space → no match
+        assert result.headings[0].suspected_number is None
+
+
+# ─── 序列合理性判断 ──────────────────────────────────────────────────────────
+
+
+class TestSequenceValidity:
+
+    def test_valid_simple_sequence(self):
+        lines = _make_lines("# 1 A", "# 2 B", "# 3 C")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is True
+
+    def test_valid_hierarchical_sequence(self):
+        lines = _make_lines("# 1 A", "## 1.1 B", "## 1.2 C", "# 2 D", "## 2.1 E")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is True
+
+    def test_valid_with_gaps(self):
+        """Gaps are allowed: 1, 2, 4 is valid."""
+        lines = _make_lines("# 1 A", "# 2 B", "# 4 C")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is True
+
+    def test_invalid_out_of_order(self):
+        """1, 5, 2 is out of order → invalid."""
+        lines = _make_lines("# 1 A", "# 5 B", "# 2 C")
         result, _ = scan(lines)
         assert result.is_valid_sequence is False
+
+    def test_invalid_parent_prefix_mismatch(self):
+        """H2 '2.1' under H1 '1' → parent prefix mismatch."""
+        lines = _make_lines("# 1 A", "## 2.1 B")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is False
+
+    def test_valid_parent_prefix(self):
+        """H2 '1.1' under H1 '1' → correct parent prefix."""
+        lines = _make_lines("# 1 A", "## 1.1 B")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is True
+
+    def test_invalid_less_than_50_percent(self):
+        """Less than 50% have numbers → invalid."""
+        lines = _make_lines("# 1 A", "# B", "# C", "# D")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is False
+
+    def test_exactly_50_percent(self):
+        """Exactly 50% → valid (>= 0.5)."""
+        lines = _make_lines("# 1 A", "# 2 B", "# C", "# D")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is True
+
+    def test_version_numbers_invalid(self):
+        """'1.0 概述', '2.0 Release' — not a valid sequence (1.0 then 2.0 at same level)."""
+        lines = _make_lines("# 1.0 概述", "## 2.0 Release Notes", "## 3.1 版本更新日志")
+        result, _ = scan(lines)
+        # 2.0 under 1.0: parent prefix '2' != '1.0' (or level mismatch)
+        assert result.is_valid_sequence is False
+
+    def test_no_headings_invalid(self):
+        lines = _make_lines("no headings")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is False
+
+    def test_no_numbered_headings_invalid(self):
+        lines = _make_lines("# A", "## B")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is False
+
+    def test_all_same_number_invalid(self):
+        """1, 1, 1 — not increasing → invalid."""
+        lines = _make_lines("# 1 A", "# 1 B", "# 1 C")
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is False
+
+    def test_three_level_valid(self):
+        lines = _make_lines(
+            "# 1 A", "## 1.1 B", "### 1.1.1 C",
+            "### 1.1.2 D", "## 1.2 E", "# 2 F"
+        )
+        result, _ = scan(lines)
+        assert result.is_valid_sequence is True
+
+
+# ─── Info Warning ────────────────────────────────────────────────────────────
+
+
+class TestInfoWarning:
+
+    def test_warning_on_invalid_sequence_with_numbers(self):
+        """Invalid sequence with suspected numbers → Info warning."""
+        lines = _make_lines("# 1.0 概述", "## 2.0 Release", "## 3.1 日志")
+        _, warnings = scan(lines)
+        assert len(warnings) == 1
+        assert "not a valid numbering sequence" in warnings[0].message
+        assert "--force-strip" in warnings[0].message
+
+    def test_no_warning_on_valid_sequence(self):
+        lines = _make_lines("# 1 A", "# 2 B", "# 3 C")
+        _, warnings = scan(lines)
+        assert warnings == []
+
+    def test_no_warning_when_no_numbers(self):
+        lines = _make_lines("# A", "## B")
+        _, warnings = scan(lines)
+        assert warnings == []
+
+    def test_no_warning_on_empty_document(self):
+        lines = _make_lines("")
+        _, warnings = scan(lines)
+        assert warnings == []
+
+    def test_warning_message_format(self):
+        """Warning message matches SPEC format."""
+        lines = _make_lines("# 1.0 A", "# 2.0 B")
+        _, warnings = scan(lines)
+        expected = (
+            "number prefixes detected but not a valid numbering sequence, "
+            "skipping strip. Use --force-strip to override."
+        )
+        assert warnings[0].message == expected
