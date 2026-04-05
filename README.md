@@ -64,7 +64,7 @@ python -m feishu2md input.md --inplace
 # Overwrite without backup
 python -m feishu2md input.md --inplace --no-backup
 
-# Set max heading level for numbering (default: 3)
+# Set max heading level for numbering (default: 4)
 python -m feishu2md input.md --max-level 4
 
 # Strip existing numbers only (no re-numbering)
@@ -85,7 +85,7 @@ python -m feishu2md input.md --force-strip
 | `-o, --output` | Output file path | stdout |
 | `--inplace` | Overwrite input file (creates `.bak`) | false |
 | `--no-backup` | Skip `.bak` when using `--inplace` | false |
-| `--max-level` | Max heading level to number (1–6) | 3 |
+| `--max-level` | Max heading level to number (1–6) | 4 |
 | `--strip-only` | Only strip numbers, don't re-generate | false |
 | `--no-strip` | Skip stripping, add numbers directly | false |
 | `--force-strip` | Force strip all suspected numbers | false |
@@ -257,7 +257,7 @@ sudo apt install pandoc
 | `-o, --output` | 输出文件路径 | stdout |
 | `--inplace` | 覆盖原文件（自动生成 `.bak` 备份） | false |
 | `--no-backup` | 与 `--inplace` 配合，跳过备份 | false |
-| `--max-level` | 参与编号的最大标题层级（1–6） | 3 |
+| `--max-level` | 参与编号的最大标题层级（1–6） | 4 |
 | `--strip-only` | 仅剥离已有编号，不重新生成 | false |
 | `--no-strip` | 跳过编号剥离，直接添加编号 | false |
 | `--force-strip` | 强制剥离所有疑似编号 | false |

@@ -45,10 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-level",
         type=int,
-        default=3,
+        default=4,
         choices=range(1, 7),
         metavar="{1-6}",
-        help="Max heading level to number (1-6, default: 3)",
+        help="Max heading level to number (1-6, default: 4)",
     )
     parser.add_argument(
         "--strip-only",
