@@ -174,6 +174,21 @@ python -m pytest tests/
 python -m pytest tests/ -m "not integration"
 ```
 
+## Changelog
+
+Full history on [GitHub Releases](https://github.com/fluten/feishu-to-markdown/releases).
+
+### [v1.1.0](https://github.com/fluten/feishu-to-markdown/releases/tag/v1.1.0) — 2026-04-09
+
+- **Recover heading hierarchy** from Feishu's empty `styles.xml` — injects standard `Heading 1..6` definitions before Pandoc reads the docx, so styled headings (`<w:pStyle w:val="1".."6"/>`) become real `# / ## / ###` instead of plain bold paragraphs.
+- **Recover list numbering** (`1.` / `a.` / `-`) and **nesting** from Feishu's per-item `numId` encoding — resolves the visible counter from `numbering.xml` and reconstructs depth from `<w:ind w:left>`.
+- **Hyperlinks, tables, deeply nested lists** no longer silently dropped during conversion.
+- New module: `feishu2md/docx_patcher.py`. Zero new dependencies (stdlib only). 402 existing tests pass.
+
+### [v1.0.0](https://github.com/fluten/feishu-to-markdown/releases/tag/v1.0.0) — 2026-04-05
+
+- Initial release: Feishu bold heading detection, smart number stripping, auto heading numbering, Setext→ATX conversion, GFM tables, idempotent output, cross-platform.
+
 ---
 
 <a id="简体中文"></a>
@@ -263,3 +278,18 @@ sudo apt install pandoc
 | `--force-strip` | 强制剥离所有疑似编号 | false |
 
 > `--strip-only`、`--no-strip`、`--force-strip` 三者互斥。
+
+## 版本历史
+
+完整历史见 [GitHub Releases](https://github.com/fluten/feishu-to-markdown/releases)。
+
+### [v1.1.0](https://github.com/fluten/feishu-to-markdown/releases/tag/v1.1.0) — 2026-04-09
+
+- **恢复标题层级**：检测到飞书空 `styles.xml` 时，自动注入标准 `Heading 1..6` 样式定义。Pandoc 因此能识别飞书的标题段落（`<w:pStyle w:val="1".."6"/>`），输出真正的 `# / ## / ###` 而不是退化成普通粗体。
+- **恢复列表小标号与嵌套**（`1.` / `a.` / `-`）：解析飞书"每段独立 `numId`"的反常编码，从 `numbering.xml` 还原可见编号，从 `<w:ind w:left>` 还原嵌套深度。
+- **超链接、表格内列表、深层嵌套列表** 不再在转换中静默丢失。
+- 新增模块 `feishu2md/docx_patcher.py`。零新增依赖（仅 stdlib）。现有 402 个测试无回归。
+
+### [v1.0.0](https://github.com/fluten/feishu-to-markdown/releases/tag/v1.0.0) — 2026-04-05
+
+- 首个正式版：飞书粗体标题识别、智能编号剥离、自动标题编号、Setext→ATX 转换、GFM 表格输出、幂等输出、跨平台支持。
