@@ -1,6 +1,6 @@
 [project]
 name = "feishu-to-markdown"
-version = "1.0.0"
+version = "1.1.0"
 description = "Convert Feishu (飞书/Lark) docs to clean Markdown with auto-numbered headings"
 authors = [
     { name = "gh59" },
