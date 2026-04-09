@@ -36,7 +36,7 @@ class TestPackageInit:
 
     def test_version_value(self):
         from feishu2md import __version__
-        assert __version__ == "1.0.0"
+        assert __version__ == "1.1.0"
 
     def test_package_importable(self):
         import feishu2md
@@ -56,7 +56,7 @@ class TestPyprojectMetadata:
         assert pyproject_data["project"]["name"] == "feishu-to-markdown"
 
     def test_version(self, pyproject_data):
-        assert pyproject_data["project"]["version"] == "1.0.0"
+        assert pyproject_data["project"]["version"] == "1.1.0"
 
     def test_version_matches_init(self, pyproject_data):
         from feishu2md import __version__
