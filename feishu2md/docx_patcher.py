@@ -13,9 +13,9 @@
 
 本模块的修补策略：
 
-- **Step A** —— 当 `styles.xml` 是空的（< 300 字节，飞书指纹），注入 6 条标准
-  Heading 1..6 样式定义。Pandoc 看到 `pStyle val="1"` 能在 styles.xml 找到
-  `<w:name w:val="Heading 1"/>` → 输出 `# 标题`。
+- **Step A** —— 注入 6 条标准 Heading 1..6 样式定义。Pandoc 看到
+  `pStyle val="1"` 能在 styles.xml 找到 `<w:name w:val="Heading 1"/>` →
+  输出 `# 标题`。
 
 - **Step B** —— 解析 numbering.xml，为每个带 `<w:numPr>` 的段落计算"应显示的
   编号文本"（例如 "1." / "a." / "-"）和嵌套深度（基于 `<w:ind w:left="N"/>`，
@@ -29,10 +29,19 @@
   - 如果 marker 在行内（HTML 表格单元上下文）→ 用 `&nbsp; * 4 * depth` 缩进，
     因为 HTML 折叠真实空格。
 
-整个模块**对非飞书 docx 是 no-op**：判定条件是 `styles.xml < 300 字节`。注意
-这是个启发式判定，不严谨；后续考虑加更稳的飞书指纹检测。
+**飞书指纹判定**（`_is_feishu_docx`）：Step A 和 Step B 共用同一个 gate。
+判定逻辑：
+1. 必要条件：`styles.xml` 是空的（< 300 字节）—— 这是飞书最稳的指纹，
+   标准 Word 文档总是有完整的样式定义；
+2. 如果文档有 numbering.xml，还要满足下列任一：
+   - 存在 `abstractNumId >= 1000` 的 abstractNum（飞书用 656820+，Word 一般 0-100）
+   - 每个 abstractNum 都恰好只有一个 `<w:lvl>`（飞书的"每段独立 lvl"特征）
+3. 如果文档没有 numbering.xml（飞书只用了标题没有列表），仅靠条件 1 即可判定。
+
+对非飞书 docx 模块完全 no-op：直接 `shutil.copy` 输入到输出，不做任何 patch。
 """
 import re
+import shutil
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -209,6 +218,60 @@ def _patch_document_xml(doc_xml: str, num_map: dict) -> str:
 
 
 # ============================================================
+# 飞书指纹检测
+# ============================================================
+
+
+# 飞书的 abstractNumId 用大数字（实测 656820+），标准 Word 一般 0-100
+_FEISHU_ABSTRACT_ID_THRESHOLD = 1000
+
+
+def _is_feishu_docx(files: dict) -> bool:
+    """根据 docx 内容判定是否飞书导出。
+
+    判定逻辑（详见模块 docstring）：
+    - 必要条件：styles.xml 是空的（< 300 字节）
+    - 如果有 numbering.xml，还需满足以下任一：
+      - 存在 abstractNumId >= 1000 的 abstractNum
+      - 每个 abstractNum 都恰好只有一个 <w:lvl>
+    - 如果没有 numbering.xml，仅凭空 styles.xml 即判定为飞书
+
+    返回 False 时，patch_docx 会变成 no-op（直接复制输入到输出）。
+    """
+    # 必要条件：空 styles.xml
+    styles = files.get("word/styles.xml", b"")
+    if len(styles) >= _FEISHU_STYLES_THRESHOLD:
+        return False
+
+    numbering = files.get("word/numbering.xml", b"")
+    if not numbering:
+        # 没有 numbering.xml，仅凭空 styles 已足够
+        return True
+
+    try:
+        root = ET.fromstring(numbering)
+    except ET.ParseError:
+        return False
+
+    abstract_nums = root.findall(_W + "abstractNum")
+    if not abstract_nums:
+        # numbering.xml 存在但没有 abstractNum 定义，仅凭空 styles 已足够
+        return True
+
+    # 指纹 1：abstractNumId 是大数字
+    for an in abstract_nums:
+        aid = an.get(_W + "abstractNumId")
+        if aid and aid.isdigit() and int(aid) >= _FEISHU_ABSTRACT_ID_THRESHOLD:
+            return True
+
+    # 指纹 2：每个 abstractNum 都恰好只有一个 <w:lvl>
+    if all(len(an.findall(_W + "lvl")) == 1 for an in abstract_nums):
+        return True
+
+    return False
+
+
+# ============================================================
 # 入口：patch_docx
 # ============================================================
 
@@ -216,17 +279,22 @@ def _patch_document_xml(doc_xml: str, num_map: dict) -> str:
 def patch_docx(input_path: Path, output_path: Path) -> None:
     """读入 input_path，把修补后的 docx 写到 output_path。
 
-    Step A 仅在 styles.xml 是飞书空版本时触发；Step B 总是执行（对非飞书
-    docx 也会运行，但因为 numbering.xml 结构不同可能产生意料外的效果，这是
-    已知的边界条件，待修复）。
+    对非飞书 docx 是完全 no-op：直接复制输入到输出。检测条件见
+    `_is_feishu_docx()`。
+
+    对飞书 docx 同时执行 Step A（注入 heading 样式）和 Step B（解析
+    numbering.xml + 字符串手术修补 document.xml）。
     """
     with zipfile.ZipFile(input_path, "r") as zin:
         files: dict[str, bytes] = {name: zin.read(name) for name in zin.namelist()}
 
-    # Step A: 注入 heading 样式定义（仅当 styles.xml 是飞书空版本）
-    styles = files.get("word/styles.xml", b"")
-    if len(styles) < _FEISHU_STYLES_THRESHOLD:
-        files["word/styles.xml"] = _HEADING_STYLES_XML.encode("utf-8")
+    if not _is_feishu_docx(files):
+        # 非飞书 docx：直接拷贝原文件，不做任何 patch
+        shutil.copy(input_path, output_path)
+        return
+
+    # Step A: 注入 heading 样式定义
+    files["word/styles.xml"] = _HEADING_STYLES_XML.encode("utf-8")
 
     # Step B: 解析 numbering.xml + 字符串手术修补 document.xml
     num_map = _parse_numbering_xml(files.get("word/numbering.xml", b""))
