@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from feishu2md import docx_patcher
 from feishu2md.models import PandocNotFoundError, PandocVersionError
 
 _VERSION_RE = re.compile(r"pandoc(?:\.exe)?\s+(\d+(?:\.\d+)*)")
@@ -80,18 +81,27 @@ def convert(docx_path: Path, output_dir: Path | None = None) -> str:
 
     # Write to a temp file, then read back
     with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+        tmp_md_path = Path(tmp.name)
+    # Patched docx (recovers Feishu heading hierarchy + list numbering)
+    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_docx:
+        tmp_docx_path = Path(tmp_docx.name)
 
     try:
+        # Pre-process: patch the docx to repair Feishu's broken serialization
+        # (empty styles.xml + per-item numId encoding). For non-Feishu docx the
+        # heading injection is skipped (heuristic gate), but the list patcher
+        # currently always runs — see docx_patcher module docstring.
+        docx_patcher.patch_docx(docx_path, tmp_docx_path)
+
         # Use GFM (GitHub Flavored Markdown) for best table rendering:
         # - Simple tables → pipe format (| col1 | col2 |)
         # - Complex tables (rowspan/colspan) → HTML <table>
         # GFM uses ATX headings by default, so no heading flag needed.
         cmd = [
             "pandoc",
-            str(docx_path),
+            str(tmp_docx_path),
             "-t", "gfm",
-            "-o", str(tmp_path),
+            "-o", str(tmp_md_path),
             "--wrap=none",
             f"--extract-media={media_base}",
         ]
@@ -109,7 +119,10 @@ def convert(docx_path: Path, output_dir: Path | None = None) -> str:
                 f"pandoc conversion failed: {result.stderr.strip()}"
             )
 
-        content = tmp_path.read_text(encoding="utf-8")
+        content = tmp_md_path.read_text(encoding="utf-8")
+
+        # Post-process: replace FZmark depth markers with real indentation
+        content = docx_patcher.post_process_markers(content)
 
         # Fix image paths: Pandoc generates absolute paths with mixed
         # slashes (e.g., "C:\...\docs/media/img.png"). Replace the
@@ -127,4 +140,5 @@ def convert(docx_path: Path, output_dir: Path | None = None) -> str:
 
         return content
     finally:
-        tmp_path.unlink(missing_ok=True)
+        tmp_md_path.unlink(missing_ok=True)
+        tmp_docx_path.unlink(missing_ok=True)

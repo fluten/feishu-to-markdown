@@ -89,8 +89,9 @@ class TestConvertVersionCheck:
 
 class TestConvertParameters:
 
+    @patch("feishu2md.pandoc.docx_patcher.patch_docx")
     @patch("feishu2md.pandoc.subprocess.run")
-    def test_uses_gfm_format(self, mock_run):
+    def test_uses_gfm_format(self, mock_run, mock_patch_docx):
         """GFM output for best table rendering (pipe tables + HTML fallback)."""
         mock_run.side_effect = [
             _mock_version_output("3.1.2"),
@@ -108,8 +109,9 @@ class TestConvertParameters:
         gfm_idx = cmd.index("-t")
         assert cmd[gfm_idx + 1] == "gfm"
 
+    @patch("feishu2md.pandoc.docx_patcher.patch_docx")
     @patch("feishu2md.pandoc.subprocess.run")
-    def test_2x_also_uses_gfm(self, mock_run):
+    def test_2x_also_uses_gfm(self, mock_run, mock_patch_docx):
         """Pandoc 2.x also uses GFM format."""
         mock_run.side_effect = [
             _mock_version_output("2.19.1"),
@@ -126,8 +128,9 @@ class TestConvertParameters:
         gfm_idx = cmd.index("-t")
         assert cmd[gfm_idx + 1] == "gfm"
 
+    @patch("feishu2md.pandoc.docx_patcher.patch_docx")
     @patch("feishu2md.pandoc.subprocess.run")
-    def test_wrap_none_always_present(self, mock_run):
+    def test_wrap_none_always_present(self, mock_run, mock_patch_docx):
         mock_run.side_effect = [
             _mock_version_output("3.1.2"),
             MagicMock(returncode=0),
@@ -141,8 +144,9 @@ class TestConvertParameters:
         cmd = conversion_call[0][0]
         assert "--wrap=none" in cmd
 
+    @patch("feishu2md.pandoc.docx_patcher.patch_docx")
     @patch("feishu2md.pandoc.subprocess.run")
-    def test_extract_media_with_output_dir(self, mock_run):
+    def test_extract_media_with_output_dir(self, mock_run, mock_patch_docx):
         mock_run.side_effect = [
             _mock_version_output("3.1.2"),
             MagicMock(returncode=0),
@@ -157,8 +161,9 @@ class TestConvertParameters:
         media_args = [a for a in cmd if "--extract-media" in a]
         assert len(media_args) == 1
 
+    @patch("feishu2md.pandoc.docx_patcher.patch_docx")
     @patch("feishu2md.pandoc.subprocess.run")
-    def test_extract_media_without_output_dir(self, mock_run):
+    def test_extract_media_without_output_dir(self, mock_run, mock_patch_docx):
         mock_run.side_effect = [
             _mock_version_output("3.1.2"),
             MagicMock(returncode=0),
